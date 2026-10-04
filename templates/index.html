@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FFmpeg Streamer</title>
+<script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; padding: 16px; }
+    h1 { color: #e94560; margin-bottom: 16px; font-size: 1.4em; }
+    .container { max-width: 1500px; margin: 0 auto; }
+    .grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 16px; }
+    @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
+    .card { background: #16213e; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+    .card h2 { color: #e94560; margin-bottom: 10px; font-size: 1em; display: flex; justify-content: space-between; align-items: center; }
+    .card h2 .hint { color: #667; font-size: 0.78em; font-weight: normal; }
+    label { display: block; margin-bottom: 3px; color: #aaa; font-size: 0.8em; }
+    select, input[type="text"], input[type="number"] { width: 100%; padding: 5px 7px; margin-bottom: 7px; background: #0f3460; border: 1px solid #1a1a2e; border-radius: 4px; color: #eee; font-size: 0.87em; }
+    select:focus, input:focus { outline: 1px solid #e94560; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .row4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; }
+    button { padding: 7px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.87em; font-weight: 600; transition: opacity 0.15s, background 0.15s; color: #eee; }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-start { background: #0f9b0f; }
+    .btn-stop { background: #e94560; }
+    .btn-neut { background: #0f3460; border: 1px solid #2a4a70; }
+    .btn-warn { background: #b03050; }
+    .btn-mini { padding: 2px 6px; font-size: 0.8em; min-width: 22px; }
+    .btn-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+    .status-badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 0.8em; font-weight: 600; }
+    .status-active { background: #0f9b0f; }
+    .status-inactive { background: #555; }
+    .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .stat-item { background: #0f3460; padding: 6px; border-radius: 4px; text-align: center; }
+    .stat-value { font-size: 1em; font-weight: 700; color: #e94560; }
+    .stat-label { font-size: 0.68em; color: #aaa; margin-top: 2px; }
+    .cpu-bar { width: 100%; height: 10px; background: #0f3460; border-radius: 5px; overflow: hidden; margin-top: 4px; }
+    .cpu-fill { height: 100%; background: linear-gradient(90deg, #0f9b0f, #e94560); transition: width 0.4s ease; }
+    .controls-list { display: flex; flex-direction: column; gap: 2px; }
+    .ctrl-row { display: grid; grid-template-columns: 150px 1fr auto; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 4px; font-size: 0.83em; }
+    .ctrl-row:hover { background: #0f3460; }
+    .ctrl-name { color: #c9d1e2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ctrl-row input[type="range"] { width: 100%; height: 14px; margin: 0; accent-color: #e94560; cursor: pointer; }
+    .ctrl-row select { margin: 0; padding: 3px 6px; font-size: 0.95em; }
+    .ctrl-row input[type="checkbox"] { margin: 0; accent-color: #e94560; cursor: pointer; width: 16px; height: 16px; }
+    .ctrl-controls { display: flex; gap: 3px; align-items: center; }
+    .ctrl-val { font-family: monospace; color: #e94560; text-align: right; font-size: 0.85em; min-width: 42px; }
+    .ctrl-group { color: #e94560; font-size: 0.78em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin: 8px 0 2px; padding: 2px 4px; border-bottom: 1px solid #2a3a5a; }
+    .error-msg { color: #e94560; padding: 8px; background: rgba(233,69,96,0.1); border-radius: 4px; font-size: 0.85em; }
+    .ok-msg { color: #0f9b0f; padding: 6px; background: rgba(15,155,15,0.1); border-radius: 4px; font-size: 0.82em; margin-bottom: 6px; }
+    #player-window { position: fixed; top: 60px; right: 30px; width: 520px; height: 320px; background: #0a0a14; border: 1px solid #e94560; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); display: none; flex-direction: column; z-index: 9999; overflow: hidden; user-select: none; }
+    #player-window.visible { display: flex; }
+    #player-header { background: linear-gradient(90deg, #e94560, #b03050); padding: 5px 10px; cursor: move; display: flex; justify-content: space-between; align-items: center; font-size: 0.82em; font-weight: 600; gap: 8px; }
+    #player-header .title { pointer-events: none; white-space: nowrap; }
+    #player-header .live-stats { pointer-events: none; background: rgba(0,0,0,0.35); padding: 2px 8px; border-radius: 10px; font-family: monospace; font-size: 0.85em; }
+    #player-header .hdr-btns { display: flex; gap: 2px; }
+    #player-header button { background: transparent; color: #fff; border: none; font-size: 1em; cursor: pointer; padding: 0 5px; line-height: 1; }
+    #player-header button:hover { color: #ffcccc; }
+    #player-body { flex: 1; position: relative; background: #000; overflow: hidden; }
+    #player-body video { width: 100%; height: 100%; object-fit: contain; display: block; }
+    #player-resize-hint { position: absolute; bottom: 4px; right: 6px; font-size: 0.7em; color: rgba(255,255,255,0.35); pointer-events: none; }
+#player-resize-handle { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 0%, transparent 45%, rgba(233,69,96,0.9) 45%, rgba(233,69,96,0.9) 55%, transparent 55%, transparent 70%, rgba(233,69,96,0.7) 70%, rgba(233,69,96,0.7) 80%, transparent 80%, transparent 90%, rgba(233,69,96,0.5) 90%, rgba(233,69,96,0.5) 100%); z-index: 3; }
+#player-resize-handle::before { content: ''; position: absolute; right: 0; bottom: 0; border-style: solid; border-width: 0 0 14px 14px; border-color: transparent transparent rgba(233,69,96,0.85) transparent; }
+#player-resize-handle:hover { background: rgba(233,69,96,0.25); }
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>🎥 FFmpeg Streamer</h1>
+    <div class="grid">
+        <div>
+            <div class="card">
+                <h2>Device & Stream</h2>
+                <label>Video device</label>
+                <select id="device-select" onchange="onDeviceChanged()"></select>
+                <label>Input format</label>
+                <select id="format-select" onchange="onFormatChanged()"></select>
+                <div class="row2">
+                    <div>
+                        <label>Resolution</label>
+                        <select id="resolution" onchange="onResolutionChanged()"></select>
+                    </div>
+                    <div>
+                        <label>FPS</label>
+                        <select id="framerate"></select>
+                    </div>
+                </div>
+                <div id="custom-size-box" style="display:none;">
+                    <label>Custom resolution</label>
+                    <div class="row2">
+                        <input type="number" id="custom-width" placeholder="width">
+                        <input type="number" id="custom-height" placeholder="height">
+                    </div>
+                    <div id="custom-size-hint" style="font-size:0.72em;color:#667;margin-top:-4px;"></div>
+                </div>
+                <div style="margin-top:6px;">
+                    <span class="status-badge status-inactive" id="status-badge">Inactive</span>
+                </div>
+                <div class="btn-row" style="margin-top:10px;">
+                    <button class="btn-start" onclick="startStream()">▶ Start</button>
+                    <button class="btn-stop" onclick="stopStream()">■ Stop</button>
+                    <button class="btn-neut" onclick="showPlayer()">🎬 Show video</button>
+                </div>
+                <div id="stream-message"></div>
+            </div>
+            <div class="card">
+                <h2>Codec Settings <span class="hint">affect the live stream</span></h2>
+                <div class="row3">
+                    <div>
+                        <label>Codec</label>
+                        <select id="vcodec">
+                            <option value="libx264" selected>libx264 (H.264)</option>
+                            <option value="mpeg4">mpeg4</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Preset</label>
+                        <select id="preset">
+                            <option value="ultrafast" selected>ultrafast</option>
+                            <option value="veryfast">veryfast</option>
+                            <option value="faster">faster</option>
+                            <option value="medium">medium</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Bitrate</label>
+                        <input type="text" id="bitrate" value="2500k">
+                    </div>
+                </div>
+                <div class="row4">
+                    <div>
+                        <label>GOP (keyint)</label>
+                        <input type="number" id="gop" value="30" min="1" max="600">
+                    </div>
+                    <div>
+                        <label>keyint_min</label>
+                        <input type="number" id="keyint_min" value="15" min="1" max="600">
+                    </div>
+                    <div>
+                        <label>sc_threshold</label>
+                        <input type="number" id="sc_threshold" value="0" min="0" max="100">
+                    </div>
+                    <div>
+                        <label>B-frames</label>
+                        <input type="number" id="bf" value="0" min="0" max="16">
+                    </div>
+                </div>
+                <div class="row4">
+                    <div>
+                        <label>QP min</label>
+                        <input type="number" id="qp_min" value="0" min="0" max="51">
+                    </div>
+                    <div>
+                        <label>QP max</label>
+                        <input type="number" id="qp_max" value="51" min="0" max="51">
+                    </div>
+                    <div>
+                        <label>Profile</label>
+                        <select id="profile">
+                            <option value="">default</option>
+                            <option value="baseline">baseline</option>
+                            <option value="main">main</option>
+                            <option value="high" selected>high</option>
+                            <option value="high10">high10</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Level</label>
+                        <select id="level">
+                            <option value="">default</option>
+                            <option value="3.0">3.0</option>
+                            <option value="3.1">3.1</option>
+                            <option value="4.0" selected>4.0</option>
+                            <option value="4.1">4.1</option>
+                            <option value="4.2">4.2</option>
+                            <option value="5.0">5.0</option>
+                        </select>
+                    </div>
+                </div>
+                <label style="margin-top:6px;">
+                    <input type="checkbox" id="zerolatency" checked style="width:auto;margin-right:6px;">
+                    zero-latency tune
+                </label>
+            </div>
+            <div class="card">
+                <h2>Stream Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-item"><div class="stat-value" id="stat-fps">-</div><div class="stat-label">FPS</div></div>
+                    <div class="stat-item"><div class="stat-value" id="stat-bitrate">-</div><div class="stat-label">Bitrate</div></div>
+                    <div class="stat-item"><div class="stat-value" id="stat-frame">-</div><div class="stat-label">Frames</div></div>
+                    <div class="stat-item"><div class="stat-value" id="stat-time">-</div><div class="stat-label">Time</div></div>
+                    <div class="stat-item"><div class="stat-value" id="stat-speed">-</div><div class="stat-label">Speed</div></div>
+                    <div class="stat-item"><div class="stat-value" id="stat-dropped">-</div><div class="stat-label">Dropped</div></div>
+                </div>
+                <div style="margin-top:12px;">
+                    <div style="display:flex;justify-content:space-between;font-size:0.82em;">
+                        <span>CPU load</span>
+                        <span id="cpu-text" style="color:#e94560;font-weight:600;">0%</span>
+                    </div>
+                    <div class="cpu-bar"><div class="cpu-fill" id="cpu-fill" style="width:0%;"></div></div>
+                    <div id="load-text" style="font-size:0.72em;color:#667;margin-top:4px;">loadavg: —</div>
+                </div>
+                <details style="margin-top:10px;">
+                    <summary style="cursor:pointer;color:#889;font-size:0.8em;">Latest FFmpeg lines</summary>
+                    <pre id="ffmpeg-log" style="background:#0a0a14;color:#8a8;padding:6px;border-radius:4px;font-size:0.72em;overflow:auto;max-height:120px;margin-top:4px;white-space:pre-wrap;"></pre>
+                </details>
+            </div>
+        </div>
+        <div>
+            <div class="card">
+                <h2>
+                    V4L2 Controls
+                    <span>
+                        <button class="btn-mini btn-neut" onclick="loadControls(true)" title="Refresh">⟳</button>
+                        <button class="btn-mini btn-warn" onclick="resetAllControls()" title="Reset all">↺ all</button>
+                    </span>
+                </h2>
+                <div id="controls-container" class="controls-list">
+                    <span style="color:#aaa;font-size:0.85em;">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div id="player-window">
+    <div id="player-header">
+        <span class="title" id="player-title">📺 /dev/video0</span>
+        <span class="live-stats" id="player-live-stats">-- fps · -- kbps</span>
+        <span class="hdr-btns">
+            <button id="player-min" title="Minimize">▣</button>
+            <button id="player-close" title="Close">✕</button>
+        </span>
+    </div>
+    <div id="player-body">
+        <video id="video-el" controls autoplay muted playsinline></video>
+        <div id="player-resize-hint">scroll for size · drag header</div>
+    <div id="player-resize-handle" title="Drag to resize"></div>
+    </div>
+</div>
+<script>
+let currentDevice = "/dev/video0";
+let lastControls = [];
+let player = null;
+let playerStatsTimer = null;
+let statsCache = {};
+const PRESET_SIZES = [[160,120],[320,240],[480,368],[640,368],[640,480],[720,544],[800,608],[960,544],[960,720],[1024,768],[1280,720],[1280,736],[1280,800],[1280,960],[1312,736],[1312,976],[1440,1088],[1600,896],[1600,1200],[1920,1088],[1920,1200],[2048,1536],[2304,1728],[2560,1440],[2560,1600],[2592,1472],[2592,1952]];
+async function api(url, opts) {
+    const r = await fetch(url, opts);
+    return await r.json();
+}
+function esc(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+async function loadDevices() {
+    try {
+        const d = await api('/api/devices');
+        const sel = document.getElementById('device-select');
+        sel.innerHTML = '';
+        for (const dev of d.devices) {
+            const opt = document.createElement('option');
+            opt.value = dev.path;
+            opt.textContent = `${dev.path} — ${dev.name}`;
+            sel.appendChild(opt);
+        }
+        if (d.current) {
+            sel.value = d.current;
+            currentDevice = d.current;
+        }
+        await loadFormats();
+        await loadControls();
+    } catch (e) { console.error(e); }
+}
+async function onDeviceChanged() {
+    currentDevice = document.getElementById('device-select').value;
+    document.getElementById('player-title').textContent = '📺 ' + currentDevice;
+    await loadFormats();
+    await loadControls(true);
+}
+async function loadFormats() {
+    const fmtSel = document.getElementById('format-select');
+    const resSel = document.getElementById('resolution');
+    const fpsSel = document.getElementById('framerate');
+    fmtSel.innerHTML = '<option value="">— select format —</option>';
+    resSel.innerHTML = '<option value="">Default</option>';
+    fpsSel.innerHTML = '<option value="">Default</option>';
+    document.getElementById('custom-size-box').style.display = 'none';
+    try {
+        const d = await api('/api/device/formats?device=' + encodeURIComponent(currentDevice));
+        if (d.error) { console.warn(d.error); return; }
+        window._formats = d.formats || [];
+        for (const f of window._formats) {
+            const opt = document.createElement('option');
+opt.value = f.fmt;
+opt.textContent = `${f.fmt} (${f.kind}) — ${f.description}`;
+            fmtSel.appendChild(opt);
+        }
+        if (window._formats.length) {
+            fmtSel.value = window._formats[0].fourcc;
+            onFormatChanged();
+        }
+    } catch (e) { console.error(e); }
+}
+function onFormatChanged() {
+    const fourcc = document.getElementById('format-select').value;
+    const resSel = document.getElementById('resolution');
+    const fpsSel = document.getElementById('framerate');
+    resSel.innerHTML = '<option value="">Default</option>';
+    fpsSel.innerHTML = '<option value="">Default</option>';
+    document.getElementById('custom-size-box').style.display = 'none';
+    window._stepwise = null;
+    if (!fourcc || !window._formats) return;
+const f = window._formats.find(x => x.fmt === fourcc);
+    if (!f) return;
+    for (const s of (f.sizes || [])) {
+        const opt = document.createElement('option');
+        opt.value = `${s.width}x${s.height}`;
+        const fpsStr = (s.fps && s.fps.length) ? ' · ' + s.fps.join('/') : '';
+        opt.textContent = `${s.width}x${s.height}${fpsStr}`;
+        resSel.appendChild(opt);
+    }
+    const sw = f.stepwise;
+    if (sw) {
+        const added = new Set();
+        for (const [w, h] of PRESET_SIZES) {
+            if (w < sw.min_w || w > sw.max_w) continue;
+            if (h < sw.min_h || h > sw.max_h) continue;
+            if ((w - sw.min_w) % sw.step_w !== 0) continue;
+            if ((h - sw.min_h) % sw.step_h !== 0) continue;
+            const key = `${w}x${h}`;
+            if (added.has(key)) continue;
+            added.add(key);
+            const opt = document.createElement('option');
+            opt.value = key;
+            opt.textContent = key;
+            resSel.appendChild(opt);
+        }
+        const optRange = document.createElement('option');
+        optRange.value = '__custom__';
+        optRange.textContent = `Custom: ${sw.min_w}×${sw.min_h} … ${sw.max_w}×${sw.max_h} (step ${sw.step_w}/${sw.step_h})`;
+        resSel.appendChild(optRange);
+        window._stepwise = sw;
+    }
+    const prefs = ['1280x720', '640x480'];
+    let chosen = null;
+    for (const p of prefs) {
+        if ([...resSel.options].some(o => o.value === p)) { chosen = p; break; }
+    }
+    if (!chosen && resSel.options.length > 1) chosen = resSel.options[1].value;
+    if (chosen) {
+        resSel.value = chosen;
+        onResolutionChanged();
+    }
+}
+function onResolutionChanged() {
+    const fourcc = document.getElementById('format-select').value;
+    const sizeVal = document.getElementById('resolution').value;
+    const fpsSel = document.getElementById('framerate');
+    const customBox = document.getElementById('custom-size-box');
+    fpsSel.innerHTML = '<option value="">Default</option>';
+    if (!fourcc || !window._formats) return;
+    const f = window._formats.find(x => x.fourcc === fourcc);
+    if (!f) return;
+    if (sizeVal === '__custom__' && window._stepwise) {
+        const sw = window._stepwise;
+        customBox.style.display = 'block';
+        const cw = document.getElementById('custom-width');
+        const ch = document.getElementById('custom-height');
+        cw.min = sw.min_w; cw.max = sw.max_w; cw.step = sw.step_w;
+        ch.min = sw.min_h; ch.max = sw.max_h; ch.step = sw.step_h;
+        if (!cw.value) cw.value = Math.min(sw.max_w, 1280);
+        if (!ch.value) ch.value = Math.min(sw.max_h, 720);
+        document.getElementById('custom-size-hint').textContent =
+            `Range ${sw.min_w}×${sw.min_h} … ${sw.max_w}×${sw.max_h}, step ${sw.step_w}/${sw.step_h}`;
+        fillFpsOptions(sw.fps || []);
+        return;
+    }
+    customBox.style.display = 'none';
+    const [wStr, hStr] = (sizeVal || '').split('x');
+    const w = parseInt(wStr), h = parseInt(hStr);
+    const disc = (f.sizes || []).find(s => s.width === w && s.height === h);
+    if (disc && disc.fps && disc.fps.length) {
+        fillFpsOptions(disc.fps);
+        return;
+    }
+    if (window._stepwise && window._stepwise.fps && window._stepwise.fps.length) {
+        fillFpsOptions(window._stepwise.fps);
+    }
+}
+function fillFpsOptions(list) {
+    const fpsSel = document.getElementById('framerate');
+    const uniq = [...new Set(list)].sort((a, b) => a - b);
+    for (const fps of uniq) {
+        const opt = document.createElement('option');
+        opt.value = String(fps);
+        opt.textContent = fps + ' fps';
+        fpsSel.appendChild(opt);
+    }
+    if (uniq.length) fpsSel.value = String(uniq[Math.min(1, uniq.length - 1)]);
+}
+function getFinalResolution() {
+    const sizeVal = document.getElementById('resolution').value;
+    if (sizeVal === '__custom__') {
+        const w = document.getElementById('custom-width').value;
+        const h = document.getElementById('custom-height').value;
+        if (w && h) return `${w}x${h}`;
+        return null;
+    }
+    return sizeVal || null;
+}
+async function loadControls(force = false) {
+    const container = document.getElementById('controls-container');
+    try {
+        const url = '/api/controls?device=' + encodeURIComponent(currentDevice) + (force ? '&force=1' : '');
+        const d = await api(url);
+        if (d.error) {
+            container.innerHTML = `<div class="error-msg">${esc(d.error)}</div>`;
+            return;
+        }
+        lastControls = d.controls || [];
+        renderControls();
+    } catch (e) {
+        container.innerHTML = `<div class="error-msg">${esc(e.message)}</div>`;
+    }
+}
+function renderControls() {
+    const container = document.getElementById('controls-container');
+    if (!lastControls.length) {
+        container.innerHTML = '<span style="color:#aaa;font-size:0.85em;">No controls found</span>';
+        return;
+    }
+    const groups = groupControls(lastControls);
+    let html = '';
+    for (const [gname, ctrls] of Object.entries(groups)) {
+        html += `<div class="ctrl-group">${esc(gname)}</div>`;
+        for (const c of ctrls) html += renderControlRow(c);
+    }
+    container.innerHTML = html;
+}
+function groupControls(ctrls) {
+    const groups = {};
+    for (const c of ctrls) {
+        const prefix = c.id.substring(2, 6);
+        let name = 'Other';
+        if (prefix === '0098') name = 'User Controls';
+        else if (prefix === '0099') name = 'Codec Controls';
+        else if (prefix === '009a') name = 'Camera Controls';
+        else if (prefix === '009d') name = 'JPEG Compression';
+        if (!groups[name]) groups[name] = [];
+        groups[name].push(c);
+    }
+    return groups;
+}
+function renderControlRow(c) {
+    const n = esc(c.name);
+    const id = 'ctrl-' + c.name;
+    const t = c.type;
+    const v = c.value;
+    if (t === 'bool') {
+        return `<div class="ctrl-row"><div class="ctrl-name" title="${n} ${esc(c.id)}">${n}</div><input type="checkbox" id="${id}" ${v ? 'checked' : ''} onchange="setControl('${n}', this.checked ? 1 : 0)"><div class="ctrl-controls"><span class="ctrl-val" id="val-${n}">${v ? 'on' : 'off'}</span><button class="btn-neut btn-mini" onclick="stepControl('${n}', -1)">▼</button><button class="btn-neut btn-mini" onclick="stepControl('${n}', 1)">▲</button><button class="btn-neut btn-mini" onclick="resetControl('${n}')">↺</button></div></div>`;
+    }
+    if (t === 'menu' || t === 'intmenu') {
+        if (!c.options || !c.options.length) return renderSliderRow(c);
+        let opts = '';
+        for (const o of c.options) {
+            const sel = (o.value === v) ? 'selected' : '';
+            opts += `<option value="${o.value}" ${sel}>${esc(o.label)}</option>`;
+        }
+        return `<div class="ctrl-row"><div class="ctrl-name" title="${n} ${esc(c.id)}">${n}</div><select id="${id}" onchange="setControl('${n}', this.value)">${opts}</select><div class="ctrl-controls"><span class="ctrl-val" id="val-${n}">${v}</span><button class="btn-neut btn-mini" onclick="stepControl('${n}', -1)">▼</button><button class="btn-neut btn-mini" onclick="stepControl('${n}', 1)">▲</button><button class="btn-neut btn-mini" onclick="resetControl('${n}')">↺</button></div></div>`;
+    }
+    if (t === 'button') {
+        return `<div class="ctrl-row"><div class="ctrl-name" title="${n} ${esc(c.id)}">${n}</div><button class="btn-neut btn-mini" style="width:100%;" onclick="setControl('${n}', 1)">Press</button><div class="ctrl-controls"><span class="ctrl-val">—</span></div></div>`;
+    }
+    return renderSliderRow(c);
+}
+function renderSliderRow(c) {
+    const n = esc(c.name);
+    const id = 'ctrl-' + c.name;
+    const min = c.min ?? 0;
+    const max = c.max ?? 255;
+    const step = c.step || 1;
+    const v = c.value ?? min;
+    return `<div class="ctrl-row"><div class="ctrl-name" title="${n} ${esc(c.id)} (${esc(c.type)})">${n}</div><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${v}" oninput="onCtrlInput('${n}', this.value)" onchange="setControl('${n}', this.value)"><div class="ctrl-controls"><span class="ctrl-val" id="val-${n}">${v}</span><button class="btn-neut btn-mini" onclick="stepControl('${n}', -1)">▼</button><button class="btn-neut btn-mini" onclick="stepControl('${n}', 1)">▲</button><button class="btn-neut btn-mini" onclick="resetControl('${n}')">↺</button></div></div>`;
+}
+function onCtrlInput(name, value) {
+    const el = document.getElementById('val-' + name);
+    if (el) el.textContent = value;
+    const c = lastControls.find(x => x.name === name);
+    if (c) c.value = parseInt(value);
+}
+async function setControl(name, value) {
+    try {
+        const r = await api('/api/controls/set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device: currentDevice, control: name, value: parseInt(value) })
+        });
+        if (r.error) console.warn(r.error);
+        const c = lastControls.find(x => x.name === name);
+        if (c) c.value = parseInt(value);
+        const el = document.getElementById('val-' + name);
+        if (el) {
+            if (c && c.type === 'bool') el.textContent = value ? 'on' : 'off';
+            else el.textContent = value;
+        }
+    } catch (e) { console.error(e); }
+}
+async function stepControl(name, direction) {
+    try {
+        const r = await api('/api/controls/step', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device: currentDevice, control: name, direction })
+        });
+        if (r.error) return console.warn(r.error);
+        await loadControls();
+    } catch (e) { console.error(e); }
+}
+async function resetControl(name) {
+    try {
+        const r = await api('/api/controls/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device: currentDevice, control: name })
+        });
+        if (r.error) return console.warn(r.error);
+        await loadControls();
+    } catch (e) { console.error(e); }
+}
+async function resetAllControls() {
+    if (!confirm('Reset all controls for ' + currentDevice + '?')) return;
+    try {
+        const r = await api('/api/controls/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device: currentDevice, all: true })
+        });
+        if (r.errors && r.errors.length) showStreamMessage('Reset with errors: ' + r.errors.slice(0, 3).join('; '), true);
+        else showStreamMessage('All controls reset', false);
+        await loadControls(true);
+    } catch (e) { console.error(e); }
+}
+function showStreamMessage(text, isError) {
+    const el = document.getElementById('stream-message');
+    el.innerHTML = text ? `<div class="${isError ? 'error-msg' : 'ok-msg'}">${esc(text)}</div>` : '';
+}
+async function startStream() {
+    const opts = {
+        device: currentDevice,
+        input_format: document.getElementById('format-select').value || null,
+        resolution: getFinalResolution(),
+        framerate: document.getElementById('framerate').value || null,
+        vcodec: document.getElementById('vcodec').value,
+        preset: document.getElementById('preset').value,
+        bitrate: document.getElementById('bitrate').value,
+        gop: document.getElementById('gop').value,
+        keyint_min: document.getElementById('keyint_min').value,
+        sc_threshold: document.getElementById('sc_threshold').value,
+        bf: document.getElementById('bf').value,
+        qp_min: document.getElementById('qp_min').value,
+        qp_max: document.getElementById('qp_max').value,
+        profile: document.getElementById('profile').value || null,
+        level: document.getElementById('level').value || null,
+        zerolatency: document.getElementById('zerolatency').checked,
+        idr_period: document.getElementById('gop').value,
+    };
+    Object.keys(opts).forEach(k => { if (opts[k] === null || opts[k] === '') delete opts[k]; });
+    const r = await api('/api/stream/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(opts)
+    });
+    if (r.error) showStreamMessage(r.error, true);
+    else { showStreamMessage('Started: ' + r.command, false); showPlayer(); }
+    updateStatus();
+}
+async function stopStream() {
+    await api('/api/stream/stop', { method: 'POST' });
+    destroyPlayer();
+    showStreamMessage('', false);
+    updateStatus();
+}
+function showPlayer() {
+    document.getElementById('player-window').classList.add('visible');
+    attachPlayer();
+}
+function hidePlayer() {
+    document.getElementById('player-window').classList.remove('visible');
+    destroyPlayer();
+}
+function attachPlayer() {
+    const video = document.getElementById('video-el');
+    fetch('/api/stream/status').then(r => r.json()).then(d => {
+        if (!d.active) { showStreamMessage('Start the stream first', true); return; }
+        initMpegts(video);
+    });
+}
+function initMpegts(video) {
+    if (player) { try { player.destroy(); } catch(e){} player = null; }
+    if (!mpegts.getFeatureList().mseLivePlayback) {
+        alert('Browser does not support MSE live playback');
+        return;
+    }
+    const streamUrl = new URL('/stream.ts', window.location.origin).href;
+    player = mpegts.createPlayer({ type: 'mpegts', isLive: true, url: streamUrl }, {
+        enableWorker: false,
+        enableStashBuffer: false,
+        liveBufferLatencyChasing: true,
+        liveBufferLatencyMaxLatency: 1.5,
+        liveBufferLatencyMinRemain: 0.3,
+        lazyLoad: false,
+        stashInitialSize: 128,
+    });
+    player.on(mpegts.Events.ERROR, (type, detail) => {
+        console.error('mpegts error:', type, detail);
+        showStreamMessage(`Player: ${type} — ${detail}`, true);
+    });
+    player.attachMediaElement(video);
+    player.load();
+    player.play().catch(e => console.warn('autoplay blocked:', e));
+    if (playerStatsTimer) clearInterval(playerStatsTimer);
+    playerStatsTimer = setInterval(updatePlayerStats, 1000);
+}
+let nowframes=0;
+let oldframes=0;
+let oldfps=0;
+function updatePlayerStats() {
+    if (!player) {
+        document.getElementById('player-live-stats').textContent = '-- fps · -- kbps';
+        return;
+    }
+    try {
+        if(nowframes<0)nowframes=0;
+        if(oldframes<0)oldframes=0;
+        if(oldfps<0)oldfps=0;
+        const info = player.statisticsInfo || {};
+	nowframes = info.decodedFrames ;
+        const fps = ( (nowframes - oldframes ) + 2 * oldfps ) / 3  ;
+        oldframes=nowframes;
+        oldfps = fps;
+        const speedKbps = info.speed ? Math.round(info.speed * 8) : 0;
+        document.getElementById('player-live-stats').textContent = `${fps.toFixed(1)} fps · ${speedKbps} kbps - ${nowframes} frames `;
+    } catch (e) {
+        document.getElementById('player-live-stats').textContent = '—';
+    }
+}
+function destroyPlayer() {
+    if (playerStatsTimer) { clearInterval(playerStatsTimer); playerStatsTimer = null; }
+    const video = document.getElementById('video-el');
+    if (player) {
+        try { player.pause(); } catch(e){}
+        try { player.unload(); } catch(e){}
+        try { player.detachMediaElement(); } catch(e){}
+        try { player.destroy(); } catch(e){}
+        player = null;
+    }
+    try { video.removeAttribute('src'); video.load(); } catch(e){}
+    document.getElementById('player-live-stats').textContent = '-- fps · -- kbps';
+}
+async function updateStatus() {
+    try {
+        const d = await api('/api/stream/status');
+        const badge = document.getElementById('status-badge');
+        if (d.active) { badge.textContent = 'Active'; badge.className = 'status-badge status-active'; }
+        else { badge.textContent = 'Inactive'; badge.className = 'status-badge status-inactive'; }
+        const s = d.stats || {};
+        document.getElementById('stat-fps').textContent = (s.fps ?? 0) + '';
+        document.getElementById('stat-bitrate').textContent = s.bitrate || '0';
+        document.getElementById('stat-frame').textContent = s.frame || '0';
+        document.getElementById('stat-time').textContent = s.time || '00:00:00';
+        document.getElementById('stat-speed').textContent = s.speed || '1x';
+        document.getElementById('stat-dropped').textContent = s.dropped || '0';
+        if (s.raw_lines) document.getElementById('ffmpeg-log').textContent = s.raw_lines.slice(-12).join('\n');
+    } catch (e) { console.error(e); }
+}
+async function updateCpu() {
+    try {
+        const d = await api('/api/cpu');
+        document.getElementById('cpu-text').textContent = d.usage + '%';
+        document.getElementById('cpu-fill').style.width = Math.min(100, d.usage) + '%';
+        document.getElementById('load-text').textContent = `loadavg: ${d.load1} / ${d.load5} / ${d.load15} · cores: ${d.cores}`;
+    } catch (e) { console.error(e); }
+}
+(function setupWindow() {
+    const win = document.getElementById('player-window');
+    const header = document.getElementById('player-header');
+    const closeBtn = document.getElementById('player-close');
+    const minBtn = document.getElementById('player-min');
+    try {
+        const saved = JSON.parse(localStorage.getItem('playerWin') || 'null');
+        if (saved) {
+            if (saved.left !== undefined) { win.style.left = saved.left; win.style.right = 'auto'; }
+            if (saved.top !== undefined) win.style.top = saved.top;
+            if (saved.width) win.style.width = saved.width;
+            if (saved.height) win.style.height = saved.height;
+        }
+    } catch (e) {}
+    function savePos() {
+        try {
+            const r = win.getBoundingClientRect();
+            localStorage.setItem('playerWin', JSON.stringify({
+                left: r.left + 'px', top: r.top + 'px',
+                width: r.width + 'px', height: r.height + 'px'
+            }));
+        } catch (e) {}
+    }
+    let dragging = false, offsetX = 0, offsetY = 0;
+    header.addEventListener('mousedown', (e) => {
+        if (e.target === closeBtn || e.target === minBtn) return;
+        dragging = true;
+        const r = win.getBoundingClientRect();
+        offsetX = e.clientX - r.left;
+        offsetY = e.clientY - r.top;
+        win.style.right = 'auto'; win.style.bottom = 'auto';
+        win.style.left = r.left + 'px'; win.style.top = r.top + 'px';
+        e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        let x = e.clientX - offsetX;
+        let y = e.clientY - offsetY;
+        x = Math.max(-win.offsetWidth + 80, Math.min(x, window.innerWidth - 60));
+        y = Math.max(0, Math.min(y, window.innerHeight - 30));
+        win.style.left = x + 'px'; win.style.top = y + 'px';
+    });
+    document.addEventListener('mouseup', () => { if (dragging) { dragging = false; savePos(); } });
+    win.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const r = win.getBoundingClientRect();
+        const aspect = r.width / r.height;
+        const delta = e.deltaY > 0 ? -1 : 1;
+        let newW = r.width + 40 * delta;
+        let newH = newW / aspect;
+        newW = Math.max(220, Math.min(newW, window.innerWidth - 20));
+        newH = Math.max(140, Math.min(newH, window.innerHeight - 20));
+        newW = newH * aspect;
+        win.style.width = newW + 'px';
+        win.style.height = newH + 'px';
+        savePos();
+    }, { passive: false });
+    closeBtn.addEventListener('click', hidePlayer);
+    minBtn.addEventListener('click', () => {
+        win.style.right = '20px'; win.style.left = 'auto';
+        win.style.top = '60px';
+        win.style.width = '320px'; win.style.height = '200px';
+        savePos();
+    });
+    header.addEventListener('dblclick', () => {
+        win.style.width = '520px'; win.style.height = '320px';
+        win.style.left = 'auto'; win.style.top = '60px'; win.style.right = '30px';
+        savePos();
+    });
+const resizeHandle = document.getElementById('player-resize-handle');
+let resizing = false, startX = 0, startY = 0, startW = 0, startH = 0, startL = 0, startT = 0;
+resizeHandle.addEventListener('mousedown', (e) => {
+    resizing = true;
+    const r = win.getBoundingClientRect();
+    startX = e.clientX;
+    startY = e.clientY;
+    startW = r.width;
+    startH = r.height;
+    startL = r.left;
+    startT = r.top;
+    win.style.right = 'auto';
+    win.style.bottom = 'auto';
+    win.style.left = r.left + 'px';
+    win.style.top = r.top + 'px';
+    e.preventDefault();
+    e.stopPropagation();
+});
+document.addEventListener('mousemove', (e) => {
+    if (!resizing) return;
+    let newW = startW + (e.clientX - startX);
+    let newH = startH + (e.clientY - startY);
+    newW = Math.max(240, Math.min(newW, window.innerWidth - startL - 10));
+    newH = Math.max(160, Math.min(newH, window.innerHeight - startT - 10));
+    win.style.width = newW + 'px';
+    win.style.height = newH + 'px';
+});
+document.addEventListener('mouseup', () => {
+    if (resizing) {
+        resizing = false;
+        savePos();
+    }
+});
+})();
+loadDevices();
+updateStatus();
+updateCpu();
+setInterval(updateStatus, 2000);
+setInterval(updateCpu, 2000);
+setInterval(() => loadControls(true), 5000);
+</script>
+</body>
+</html>
